@@ -1,0 +1,128 @@
+{
+    "name": "Marvel Rivals",
+    "element_positions": [{
+        "Name": "Team Roster",
+        "Position": "Center"
+    },
+    {
+        "Name": "Score Ingame",
+        "Position": "TopCenter"
+    },
+    {
+        "Name": "Score Pregame",
+        "Position": "Center"
+    },
+    {
+        "Name": "Map Picks",
+        "Position": "Center"
+    },
+    {
+        "Name": "Sponsorships Badge",
+        "Position": "BottomLeft"
+    },
+    {
+        "Name": "Character Bans Ingame",
+        "Position": "CenterLeft"
+    },
+    {
+        "Name": "Character Bans Pregame",
+        "Position": "Center"
+    },
+    {
+        "Name": "Intermission",
+        "Position": "Center"
+    },
+    {
+        "Name": "Tech Pause",
+        "Position": "Center"
+    },
+    {
+        "Name": "Starting Soon",
+        "Position": "Center"
+    }],
+    "enabled_screens": [
+        "Team Roster",
+        "Score Ingame",
+        "Score Pregame",
+        "Map Picks",
+        "Sponsorships Badge",
+        "Character Bans Ingame",
+        "Character Bans Pregame",
+        "Intermission",
+        "Tech Pause",
+        "Starting Soon"
+    ],
+    "maps": [
+        "Arakko",
+        "Birnin T'Challa",
+        "Celestial Husk",
+        "Central Park",
+        "Hall of Djalia",
+        "Heart of Heaven",
+        "Hell's Heaven",
+        "Krakoa",
+        "Lower Manhattan",
+        "Midtown",
+        "Museum of Contemplation",
+        "Shin-Shibuya",
+        "Spider-Islands",
+        "Symbiotic Surface",
+        "Thebes",
+        "Yggdrasill Path"
+    ],
+    "chars": [
+        "Adam Warlock",
+        "Angela",
+        "Black Cat",
+        "Black Panther",
+        "Black Widow",
+        "Blade",
+        "Captain America",
+        "Cloak & Dagger",
+        "Cyclops",
+        "Daredevil",
+        "Deadpool",
+        "Devil Dinosaur",
+        "Doctor Strange",
+        "Elsa Bloodstone",
+        "Emma Frost",
+        "Gambit",
+        "Groot",
+        "Hawkeye",
+        "Hela",
+        "Hulk",
+        "Human Torch",
+        "Invisible Woman",
+        "Iron Fist",
+        "Iron Man",
+        "Jeff the Land Shark",
+        "Jubilee",
+        "Loki",
+        "Luna Snow",
+        "Magik",
+        "Magneto",
+        "Mantis",
+        "Mister Fantastic",
+        "Moon Knight",
+        "Namor",
+        "Peni Parker",
+        "Phoenix",
+        "Psylocke",
+        "Rocket Raccoon",
+        "Rogue",
+        "Scarlet Witch",
+        "Spider-Man",
+        "Squirrel Girl",
+        "Star-Lord",
+        "Storm",
+        "The Hood",
+        "The Punisher",
+        "The Thing",
+        "Thor",
+        "Ultron",
+        "Venom",
+        "White Fox",
+        "Winter Soldier",
+        "Wolverine"
+    ]
+}

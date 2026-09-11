@@ -1,0 +1,55 @@
+{
+    "name": "CSGO",
+    "element_positions": [{
+        "Name": "Team Roster",
+        "Position": "Center"
+    },
+    {
+        "Name": "Score Ingame",
+        "Position": "TopCenter"
+    },
+    {
+        "Name": "Score Pregame",
+        "Position": "Center"
+    },
+    {
+        "Name": "Map Picks",
+        "Position": "Center"
+    },
+    {
+        "Name": "Sponsorships Badge",
+        "Position": "BottomLeft"
+    },
+    {
+        "Name": "Intermission",
+        "Position": "Center"
+    },
+    {
+        "Name": "Tech Pause",
+        "Position": "Center"
+    },
+    {
+        "Name": "Starting Soon",
+        "Position": "Center"
+    }],
+    "enabled_screens": [
+        "Team Roster",
+        "Score Ingame",
+        "Score Pregame",
+        "Map Picks",
+        "Sponsorships Badge",
+        "Intermission",
+        "Tech Pause",
+        "Starting Soon"
+    ],
+    "maps": [
+        "Ancient",
+        "Anubis",
+        "Inferno",
+        "Mirage",
+        "Nuke",
+        "Overpass",
+        "Vertigo"
+    ],
+    "chars": []
+}
