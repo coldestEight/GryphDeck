@@ -1,8 +1,11 @@
+import json
+
+
 class MatchInfo:
     
     def __init__(self):
         self.players = [[], []]
-        self.teams = [('Team1', 3),('Team2', 1)]
+        self.teams = [('', 0),('', 0)]
 
     #expects 1 or 2
     def team_info(self, teamNum):
@@ -49,3 +52,13 @@ class MatchInfo:
     def swap_sides(self):
         self.players[0], self.players[1] = self.players[1], self.players[0]
         self.teams[0], self.teams[1] = self.teams[1], self.teams[0]
+
+    def __str__(self):
+        return json.dumps({
+            "team_1": self.team_info(1),
+            "team_2": self.team_info(2),
+        }, indent=2)
+
+    def print_info(self):
+        """Print both teams, including their scores and players."""
+        print(self)

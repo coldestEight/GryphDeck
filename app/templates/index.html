@@ -3,12 +3,57 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>GryphDeck</title>
+    <meta name="color-scheme" content="dark">
+    <title>GryphDeck · Broadcast control</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/control.css') }}">
+    <script defer src="{{ url_for('static', filename='js/control.js') }}"></script>
   </head>
   <body>
+    <header class="topbar">
+      <a class="brand" href="{{ url_for('control.dashboard') }}"><span class="brand-mark">G</span> GryphDeck <span class="brand-label">CONTROL ROOM</span></a>
+      <span class="connection" id="connection">Connecting…</span>
+    </header>
     <main>
-      <h1>GryphDeck</h1>
-      <p>Your Flask web app is up and running.</p>
+      <div class="page-heading"><div><p class="eyebrow">BROADCAST WORKSPACE</p><h1>Your match. Your control.</h1><p class="muted">Set the stage, manage your teams, and keep the show moving.</p></div><span class="session-label">LOCAL SESSION</span></div>
+      <div id="notice" role="status" aria-live="polite">Loading your workspace…</div>
+      <noscript><p class="error">Enable JavaScript to use the broadcast controls.</p></noscript>
+      <fieldset id="workspace" disabled>
+        <legend class="sr-only">Broadcast controls</legend>
+        <section class="panel game-panel" aria-labelledby="game-heading">
+          <div><p class="eyebrow">01 / GAME SETUP</p><h2 id="game-heading">Choose your arena</h2><p class="muted">Load a game JSON to configure the available components.</p></div>
+          <form id="game-form"><label for="game">Game configuration</label><div class="input-row"><select id="game" name="game" required></select><button class="primary" type="submit">Load game <span aria-hidden="true">↗</span></button></div><small>Loading resets component toggles and keeps your teams.</small></form>
+        </section>
+        <section class="panel scene-panel" aria-labelledby="scene-heading">
+          <div class="section-heading"><div><p class="eyebrow">02 / SCENE CONTROL</p><h2 id="scene-heading">Set the scene</h2></div><span class="pill" id="enabled-count">0 enabled</span></div>
+          <div class="scene-buttons" role="group" aria-label="Select scene">
+            <button type="button" data-scene="idle" aria-pressed="true"><span class="scene-number">01</span><span>Idle<small>Before the action</small></span><span class="scene-dot" aria-hidden="true"></span></button>
+            <button type="button" data-scene="pregame" aria-pressed="false"><span class="scene-number">02</span><span>Pre-game<small>Build the anticipation</small></span><span class="scene-dot" aria-hidden="true"></span></button>
+            <button type="button" data-scene="ingame" aria-pressed="false"><span class="scene-number">03</span><span>In-game<small>Follow every play</small></span><span class="scene-dot" aria-hidden="true"></span></button>
+          </div>
+          <div class="component-heading"><h3 id="component-heading">Idle components</h3><span>Click a component to toggle it</span></div>
+          <div id="components" class="components" role="group" aria-labelledby="component-heading"></div>
+          <p class="hint"><span aria-hidden="true">↳</span> Components sharing a position replace each other. Each scene keeps its own toggles.</p>
+        </section>
+        <section class="match-section" aria-labelledby="match-heading">
+          <div class="section-heading"><div><p class="eyebrow">03 / MATCH DETAILS</p><h2 id="match-heading">The matchup</h2></div><button id="swap-sides" type="button" class="secondary"><span aria-hidden="true">⇄</span> Swap sides</button></div>
+          <div class="match-summary" aria-label="Current saved score"><span id="summary-left">Team 1</span><strong><span id="score-left">0</span><span class="score-divider">:</span><span id="score-right">0</span></strong><span id="summary-right">Team 2</span></div>
+          <div class="team-grid">
+            {% for team in (1, 2) %}
+            <article class="panel team-card" data-team="{{ team }}">
+              <div class="team-heading"><span class="side-label"><span class="team-dot"></span>{{ 'LEFT' if team == 1 else 'RIGHT' }} SIDE</span><span class="muted">Team {{ team }}</span></div>
+              <form class="team-form">
+                <div class="team-fields"><div><label for="team-name-{{ team }}">Team name</label><input id="team-name-{{ team }}" name="name" placeholder="Team {{ team }}" maxlength="80" required></div><div><label for="team-score-{{ team }}">Score</label><input id="team-score-{{ team }}" name="score" type="number" min="0" max="999" step="1" value="0" required></div></div>
+                <button class="secondary save-team" type="submit">Save team details</button>
+              </form>
+              <div class="roster-heading"><h3>Player roster</h3><span class="pill player-count">0 players</span></div>
+              <ul class="players" aria-label="Team {{ team }} players"></ul>
+              <form class="player-form"><label class="sr-only" for="player-{{ team }}">New player for team {{ team }}</label><div class="input-row"><input id="player-{{ team }}" name="player" placeholder="Enter player name" maxlength="80" required><button class="secondary" type="submit">+ Add player</button></div></form>
+            </article>
+            {% endfor %}
+          </div>
+        </section>
+      </fieldset>
+      <footer><span>GRYPHDECK <span class="muted">/ Broadcast control</span></span><span>State is shared in this server session and resets on restart.</span></footer>
     </main>
   </body>
 </html>
