@@ -32,6 +32,20 @@ class GameInfo:
             "chars": self.chars,
         }, indent=2)
 
+    def ban_options(self):
+        """Use configured components, not their current on-screen toggle state."""
+        components = {name.casefold() for name in self.enabled_components}
+        return {
+            "map": {
+                "supported": any("map" in name and ("pick" in name or "ban" in name) for name in components),
+                "choices": self.maps,
+            },
+            "hero": {
+                "supported": any(("character" in name or "hero" in name) and "ban" in name for name in components),
+                "choices": self.chars,
+            },
+        }
+
     def print_info(self):
         """Print the game's configuration for debugging."""
         print(self)

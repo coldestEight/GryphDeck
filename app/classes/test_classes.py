@@ -172,6 +172,66 @@ class StateManagerTests(unittest.TestCase):
         self.assertEqual(str(other), before)
         self.assertNotIn("Test Map", other.game_info.maps)
 
+    def test_post_request_includes_all_scenes_and_only_enabled_components(self):
+        self.assertEqual(json.loads(self.state.create_post_request()), {
+            "game": "Valorant", "scenes": {"idle": [], "pregame": [], "ingame": []},
+        })
+        self.state.enable_component("idle", "Starting Soon")
+        self.state.enable_component("idle", "Sponsorships Badge")
+        self.state.enable_component("pregame", "Team Roster")
+        self.state.enable_component("pregame", "Score Pregame")
+        self.state.enable_component("ingame", "Score Ingame")
+        self.state.current_scene = "ingame"
+        scenes = json.loads(self.state.create_post_request())["scenes"]
+        self.assertEqual({c["name"] for c in scenes["idle"]}, {"Starting Soon", "Sponsorships Badge"})
+        self.assertEqual([c["name"] for c in scenes["pregame"]], ["Score Pregame"])
+        self.assertEqual(scenes["ingame"][0]["location"], "BottomCenter")
+        for component in scenes["idle"]:
+            self.assertEqual(component["data"], {"game": "Valorant", "scene": "idle"})
+        self.state.disable_component("ingame", "Score Ingame")
+        self.assertEqual(json.loads(self.state.create_post_request())["scenes"]["ingame"], [])
+
+    def test_post_request_uses_live_rosters_scores_and_side_order(self):
+        for team in (1, 2):
+            self.state.match_info.update_team_name(team, f"Team {team}")
+            self.state.match_info.update_team_score(team, team * 3)
+            self.state.match_info.add_player(team, f"Player {team}")
+        self.state.enable_component("pregame", "Team Roster")
+        self.state.enable_component("ingame", "Score Ingame")
+        original_json = self.state.create_post_request()
+        scenes = json.loads(original_json)["scenes"]
+        self.assertEqual(scenes["pregame"][0]["data"]["teams"], [
+            {"name": "Team 1", "players": ["Player 1"]},
+            {"name": "Team 2", "players": ["Player 2"]},
+        ])
+        self.assertEqual(scenes["ingame"][0]["data"]["teams"], [
+            {"name": "Team 1", "score": 3}, {"name": "Team 2", "score": 6},
+        ])
+        self.state.match_info.swap_sides()
+        swapped = json.loads(self.state.create_post_request())["scenes"]
+        for scene in ("pregame", "ingame"):
+            self.assertEqual(swapped[scene][0]["data"]["teams"], scenes[scene][0]["data"]["teams"][::-1])
+        self.assertEqual(json.loads(original_json)["scenes"], scenes)
+
+    def test_post_request_contains_selected_maps_and_heroes_not_catalogs(self):
+        self.state.load_game("Overwatch")
+        self.state.update_ban("map", "King's Row")
+        self.state.update_ban("hero", "L\u00facio")
+        self.state.enable_component("pregame", "Map Picks")
+        self.state.enable_component("ingame", "Character Bans Ingame")
+        scenes = json.loads(self.state.create_post_request())["scenes"]
+        self.assertEqual(scenes["pregame"][0]["data"], {
+            "game": "Overwatch", "scene": "pregame", "map_picks": ["King's Row"],
+        })
+        self.assertEqual(scenes["ingame"][0]["data"]["hero_bans"], ["L\u00facio"])
+        self.state.enable_component("pregame", "Character Bans Pregame")
+        scenes = json.loads(self.state.create_post_request())["scenes"]
+        self.assertEqual(scenes["pregame"][0]["data"]["hero_bans"], ["L\u00facio"])
+        self.state.update_ban("hero", "L\u00facio", remove=True)
+        self.assertEqual(json.loads(self.state.create_post_request())["scenes"]["ingame"][0]["data"]["hero_bans"], [])
+        self.state.load_game("Miscellaneous")
+        self.assertEqual(json.loads(self.state.create_post_request())["scenes"], {"idle": [], "pregame": [], "ingame": []})
+
 
 class PrintInfoTests(unittest.TestCase):
     def test_print_info_and_builtin_print_show_readable_state(self):

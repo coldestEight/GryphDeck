@@ -1,5 +1,6 @@
 from flask import Flask
 from threading import RLock
+import os
 
 from app.classes.StateManager import StateManager
 
@@ -7,6 +8,8 @@ from app.classes.StateManager import StateManager
 def create_app():
     """Create the control page and API with one shared, in-memory match."""
     app = Flask(__name__)
+    app.config["OVERLAY_POST_URL"] = os.environ.get("OVERLAY_POST_URL", "http://127.0.0.1:3000/api/overlay")
+    app.config["OVERLAY_POST_TIMEOUT"] = 1.0
     app.extensions["state_manager"] = StateManager()
     app.extensions["state_lock"] = RLock()
 

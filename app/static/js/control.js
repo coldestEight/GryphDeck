@@ -2,9 +2,10 @@
 
 const workspace = document.querySelector("#workspace");
 const notice = document.querySelector("#notice");
-const labels = { idle: "Idle", pregame: "Pre-game", ingame: "In-game" };
 let state;
-let busy = false;
+let requestQueue = Promise.resolve();
+let swapping = false;
+const teamSavers = [];
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -19,30 +20,29 @@ function render({ teams = false, game = false } = {}) {
     select.replaceChildren(...state.games.map(name => new Option(name, name)));
     select.value = state.game_key;
   }
-  document.querySelectorAll("[data-scene]").forEach(button => {
-    button.setAttribute("aria-pressed", String(button.dataset.scene === state.scene));
+  document.querySelectorAll("[data-scene-panel]").forEach(panel => {
+    const scene = panel.dataset.scenePanel;
+    const components = state.components[scene];
+    panel.querySelector(".enabled-count").textContent = `${components.filter(item => item.enabled).length} enabled`;
+    const list = panel.querySelector(".components");
+    list.replaceChildren(...components.map(component => {
+      const button = element("button", "component");
+      button.type = "button";
+      button.dataset.component = component.name;
+      button.setAttribute("aria-pressed", String(component.enabled));
+      const name = element("span", "component-name", component.name);
+      name.append(element("small", "", component.position.replace(/([a-z])([A-Z])/g, "$1 $2")));
+      const toggle = element("span", "toggle");
+      toggle.setAttribute("aria-hidden", "true");
+      button.append(name, element("span", "component-state", component.enabled ? "ON" : "OFF"), toggle);
+      button.addEventListener("click", async () => {
+        await send({ action: "toggle_component", scene, component: component.name }, "Component state updated.");
+        [...list.children].find(item => item.dataset.component === component.name)?.focus();
+      });
+      return button;
+    }));
+    if (!components.length) list.append(element("p", "muted", "No components are configured for this scene."));
   });
-  const components = state.components[state.scene];
-  document.querySelector("#enabled-count").textContent = `${components.filter(item => item.enabled).length} enabled`;
-  document.querySelector("#component-heading").textContent = `${labels[state.scene]} components`;
-  const list = document.querySelector("#components");
-  list.replaceChildren(...components.map(component => {
-    const button = element("button", "component");
-    button.type = "button";
-    button.dataset.component = component.name;
-    button.setAttribute("aria-pressed", String(component.enabled));
-    const name = element("span", "component-name", component.name);
-    name.append(element("small", "", component.position.replace(/([a-z])([A-Z])/g, "$1 $2")));
-    const toggle = element("span", "toggle");
-    toggle.setAttribute("aria-hidden", "true");
-    button.append(name, element("span", "component-state", component.enabled ? "Enabled" : "Disabled"), toggle);
-    button.addEventListener("click", async () => {
-      await send({ action: "toggle_component", scene: state.scene, component: component.name }, "Component state updated.");
-      [...list.children].find(item => item.dataset.component === component.name)?.focus();
-    });
-    return button;
-  }));
-  if (!components.length) list.append(element("p", "muted", "No components are configured for this scene."));
 
   state.teams.forEach((team, index) => {
     const side = index === 0 ? "left" : "right";
@@ -67,14 +67,68 @@ function render({ teams = false, game = false } = {}) {
       row.append(element("span", "player-index", String(playerIndex + 1).padStart(2, "0")), element("span", "player-name", player), remove);
       return row;
     }));
-    if (!team.Players.length) roster.append(element("li", "empty-roster", "An empty bench. Add your first player below."));
+    if (!team.Players.length) roster.append(element("li", "empty-roster", "No players added."));
+  });
+  renderBans({ game });
+}
+
+function renderBans({ game }) {
+  document.querySelectorAll("[data-ban-kind]").forEach(section => {
+    const kind = section.dataset.banKind;
+    const selection = kind === "map" ? "pick" : "ban";
+    const options = state.ban_options[kind];
+    const selected = state.bans[kind];
+    const input = section.querySelector('[name="ban"]');
+    section.hidden = !options.supported;
+    input.disabled = !options.supported || !options.choices.length;
+    section.querySelector('[type="submit"]').disabled = input.disabled;
+    if (game) {
+      input.value = "";
+      const feedback = section.querySelector(".ban-feedback");
+      feedback.classList.remove("error");
+      feedback.textContent = options.choices.length ? `Type to search the game's ${kind === "map" ? "maps" : "heroes"}.` : `No ${kind === "map" ? "maps" : "heroes"} configured for this game.`;
+    }
+    section.querySelector(".ban-count").textContent = `${selected.length} ${selection}${selected.length === 1 ? "" : "s"}`;
+    const suggestions = section.querySelector("datalist");
+    const available = options.choices.filter(name => !selected.includes(name));
+    if (JSON.stringify([...suggestions.options].map(option => option.value)) !== JSON.stringify(available)) {
+      suggestions.replaceChildren(...available.map(name => new Option(name, name)));
+    }
+    const list = section.querySelector(".ban-list");
+    list.replaceChildren(...selected.map((name, index) => {
+      const row = element("li", "player");
+      const remove = element("button", "remove-player", "Remove");
+      remove.type = "button";
+      remove.setAttribute("aria-label", `Remove ${name} ${kind} ${selection}`);
+      remove.addEventListener("click", async () => {
+        await saveBan(section, "remove_ban", name);
+        input.focus();
+      });
+      row.append(element("span", "player-index", String(index + 1).padStart(2, "0")), element("span", "player-name", name), remove);
+      return row;
+    }));
+    if (!selected.length) list.append(element("li", "empty-roster", `No ${kind} ${selection}s added.`));
   });
 }
 
-async function send(payload, message, options = {}) {
-  if (busy) return false;
-  busy = true;
-  workspace.disabled = true;
+async function saveBan(section, action, name) {
+  const kind = section.dataset.banKind;
+  const message = `${kind === "map" ? "Map pick" : "Hero ban"} ${action === "add_ban" ? "added" : "removed"}.`;
+  const success = await send({ action, kind, name }, message);
+  const feedback = section.querySelector(".ban-feedback");
+  feedback.textContent = success ? message : notice.textContent;
+  feedback.classList.toggle("error", !success);
+  return success;
+}
+
+function send(payload, message, options = {}) {
+  const request = requestQueue.then(() => performRequest(payload, message, options));
+  requestQueue = request.catch(() => false);
+  return request;
+}
+
+async function performRequest(payload, message, options) {
+  if (!options.background) workspace.disabled = true;
   workspace.setAttribute("aria-busy", "true");
   try {
     const response = await fetch("/api/control", {
@@ -94,29 +148,99 @@ async function send(payload, message, options = {}) {
     notice.textContent = error.message || "Unable to reach the server. Try again.";
     return false;
   } finally {
-    busy = false;
-    workspace.disabled = false;
+    if (!options.background) workspace.disabled = swapping;
     workspace.setAttribute("aria-busy", "false");
   }
 }
 
 document.querySelector("#game-form").addEventListener("submit", event => {
   event.preventDefault();
-  send({ action: "load_game", game: document.querySelector("#game").value }, "Game loaded. Components reset; match details retained.", { game: true });
+  send({ action: "load_game", game: document.querySelector("#game").value }, "Game loaded. Components, map picks, and hero bans reset; teams retained.", { game: true });
 });
-document.querySelectorAll("[data-scene]").forEach(button => {
-  button.addEventListener("click", () => send({ action: "select_scene", scene: button.dataset.scene }, `${labels[button.dataset.scene]} scene selected.`));
-});
-document.querySelector("#swap-sides").addEventListener("click", () => {
-  send({ action: "swap_sides" }, "Team names, scores, and rosters swapped.", { teams: true });
-});
-document.querySelectorAll(".team-card").forEach(card => {
-  const team = Number(card.dataset.team);
-  card.querySelector(".team-form").addEventListener("submit", event => {
+
+document.querySelectorAll("[data-ban-kind]").forEach(section => {
+  section.querySelector(".ban-form").addEventListener("submit", async event => {
     event.preventDefault();
     const form = event.currentTarget;
-    send({ action: "update_team", team, name: form.elements.name.value, score: Number(form.elements.score.value) }, `Team ${team} details saved.`);
+    if (await saveBan(section, "add_ban", form.elements.ban.value)) form.reset();
+    form.elements.ban.focus();
   });
+});
+document.querySelector("#swap-sides").addEventListener("click", async () => {
+  if (swapping) return;
+  swapping = true;
+  workspace.disabled = true;
+  try {
+    const saved = await Promise.all(teamSavers.map(save => save()));
+    if (saved.every(Boolean)) {
+      await send({ action: "swap_sides" }, "Team names, scores, and rosters swapped.", { teams: true, background: true });
+    } else {
+      notice.className = "error";
+      notice.textContent = "Save or correct team details before swapping sides.";
+    }
+  } finally {
+    swapping = false;
+    workspace.disabled = false;
+  }
+});
+
+document.querySelectorAll(".team-card").forEach(card => {
+  const team = Number(card.dataset.team);
+  const form = card.querySelector(".team-form");
+  const status = card.querySelector(".save-status");
+  const retry = card.querySelector(".retry-save");
+  let timer;
+  let revision = 0;
+  let pendingSave = Promise.resolve(true);
+
+  const save = () => {
+    clearTimeout(timer);
+    const currentRevision = revision;
+    // Read the latest draft after earlier saves finish, including before a side swap.
+    pendingSave = pendingSave.then(async () => {
+      const saved = state.teams[team - 1];
+      const name = form.elements.name.value.trim();
+      const scoreInput = form.elements.score;
+      const score = scoreInput.valueAsNumber;
+      const payload = { action: "update_team", team };
+      let invalid = false;
+      if (name !== saved.Name) {
+        if (name && name.length <= 80) payload.name = name;
+        else invalid = true;
+      }
+      if (score !== saved.Score || scoreInput.validity.badInput) {
+        if (Number.isInteger(score) && score >= 0 && score <= 999) payload.score = score;
+        else invalid = true;
+      }
+      let success = true;
+      if ("name" in payload || "score" in payload) {
+        status.textContent = "Saving...";
+        success = await send(payload, `Team ${team} details saved.`, { background: true });
+      }
+      if (revision === currentRevision) {
+        status.textContent = !success ? "Not saved. Retry when connected." : invalid ? "Not saved. Enter a name and a score from 0 to 999." : "Saved automatically.";
+        status.classList.toggle("error", !success || invalid);
+        retry.hidden = success;
+      }
+      return success && !invalid;
+    });
+    return pendingSave;
+  };
+  teamSavers.push(save);
+  form.addEventListener("input", () => {
+    revision += 1;
+    clearTimeout(timer);
+    status.textContent = "Unsaved changes...";
+    status.classList.remove("error");
+    retry.hidden = true;
+    timer = setTimeout(save, 450);
+  });
+  form.addEventListener("change", save);
+  form.addEventListener("submit", event => {
+    event.preventDefault();
+    save();
+  });
+  retry.addEventListener("click", save);
   card.querySelector(".player-form").addEventListener("submit", async event => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -134,7 +258,7 @@ async function initialize() {
     workspace.disabled = false;
     document.querySelector("#connection").textContent = "Server connected";
     document.querySelector("#connection").classList.add("connected");
-    notice.textContent = `${state.game} loaded. Ready when you are.`;
+    notice.textContent = `${state.game} loaded. Controls ready.`;
   } catch (error) {
     notice.className = "error";
     notice.textContent = error.message;

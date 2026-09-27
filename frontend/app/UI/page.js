@@ -1,5 +1,5 @@
-import SceneView from "@/components/SceneView";
+import { redirect } from "next/navigation";
 
 export default function UIPage() {
-  return <SceneView scene="ui" />;
+  redirect(`${process.env.FLASK_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000"}/UI`);
 }

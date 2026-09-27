@@ -15,6 +15,7 @@ class StateManager:
         self.current_scene = "idle"
 
         self.match_info = MatchInfo()
+        self.bans = {"map": [], "hero": []}
 
         self.current_idle_components = [] # (component_name, position, enabled)
         self.current_pregame_components = [] # (component_name, position, enabled)
@@ -23,13 +24,35 @@ class StateManager:
         self.load_components(self.game_info)
 
     def load_game(self, game_name):
-        """Replace game components while retaining the match and selected scene."""
+        """Reset game components and bans while retaining teams and selected scene."""
         replacement = StateManager(game_name)
         self.game_info = replacement.game_info
         self.game_key = replacement.game_key
         self.current_idle_components = replacement.current_idle_components
         self.current_pregame_components = replacement.current_pregame_components
         self.current_ingame_components = replacement.current_ingame_components
+        self.bans = replacement.bans
+
+    def update_ban(self, kind, name, *, remove=False):
+        options = self.game_info.ban_options()
+        if not isinstance(kind, str) or kind not in options:
+            raise ValueError("Ban type must be map or hero.")
+        selection = "picks" if kind == "map" else "bans"
+        selected_word = "picked" if kind == "map" else "banned"
+        if not options[kind]["supported"]:
+            raise ValueError(f"This game does not have {kind} {selection}.")
+        canonical = next((choice for choice in options[kind]["choices"] if choice.casefold() == name.casefold()), None)
+        if canonical is None:
+            raise ValueError(f"Choose a {kind} from the current game's list.")
+        selected = self.bans[kind]
+        if remove:
+            if canonical not in selected:
+                raise ValueError(f"That {kind} is no longer {selected_word}.")
+            selected.remove(canonical)
+        else:
+            if canonical in selected:
+                raise ValueError(f"That {kind} is already {selected_word}.")
+            selected.append(canonical)
 
     def load_components(self, game_info):
         """Load disabled components, adding shared components to every scene."""
@@ -107,8 +130,39 @@ class StateManager:
                 self.current_ingame_components = component_list
 
     def create_post_request(self):
-        # Create a post request for the current scene and screen based on the game_info and match_info
-        pass
+        """Return a JSON document containing the enabled overlays for every scene.
+
+        Each component has a name, its configured location, and display data.
+        Team arrays are ordered left then right. Static overlays receive game
+        and scene context; dynamic overlays also receive their current values.
+        This builds the request body; the caller handles its transport.
+        """
+        scenes = {}
+        for scene in ("idle", "pregame", "ingame"):
+            scenes[scene] = []
+            for name, location, enabled in getattr(self, f"current_{scene}_components"):
+                if not enabled:
+                    continue
+                data = {"game": self.game_info.name, "scene": scene}
+                component = name.casefold()
+                if component == "team roster":
+                    data["teams"] = [
+                        {"name": self.match_info.team_info(team)["Name"],
+                         "players": self.match_info.team_info(team)["Players"]}
+                        for team in (1, 2)
+                    ]
+                elif component.startswith("score "):
+                    data["teams"] = [
+                        {"name": self.match_info.team_info(team)["Name"],
+                         "score": self.match_info.team_info(team)["Score"]}
+                        for team in (1, 2)
+                    ]
+                elif "map" in component and "pick" in component:
+                    data["map_picks"] = self.bans["map"]
+                elif ("character" in component or "hero" in component) and "ban" in component:
+                    data["hero_bans"] = self.bans["hero"]
+                scenes[scene].append({"name": name, "location": location, "data": data})
+        return json.dumps({"game": self.game_info.name, "scenes": scenes}, ensure_ascii=False, indent=2)
 
     def __str__(self):
         return json.dumps({
