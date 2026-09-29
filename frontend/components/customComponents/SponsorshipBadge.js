@@ -63,13 +63,9 @@ export function SponsorshipBadge() {
     return (
         <div
             style={{
-            width: "200px",
-            height: "auto",
-            position: "fixed",
-            top: "20px",
-            right: "-200px",
-            zIndex: 9999
-        }}
+                width: "200px",
+                height: "auto"
+            }}
         >
             <img
                 src={sponsor.src}
