@@ -6,6 +6,15 @@ from unittest.mock import patch
 from urllib.error import URLError
 
 from app import create_app
+from app.classes.TeamSource import SOURCES
+from app.classes.TeamSource import logger as source_log
+from app.classes.test_classes import (
+    MANUAL,
+    FlakySource,
+    LockedSource,
+    SquadSource,
+    ValorantSource,
+)
 
 
 class ControlTests(unittest.TestCase):
@@ -98,7 +107,15 @@ class ControlTests(unittest.TestCase):
                 self.assertIs(self.manager.match_info, match)
                 self.assertEqual(
                     state["teams"][0],
-                    {"Name": "Gryphons", "Score": 5, "Players": ["Captain"]},
+                    {
+                        "Name": "Gryphons",
+                        "Score": 5,
+                        "Players": ["Captain"],
+                        "Roster": [{"Name": "Captain", "Sub": False}],
+                        "Bench": [],
+                        "Source": MANUAL,
+                        "Extra": {},
+                    },
                 )
                 self.assertFalse(
                     any(
@@ -110,10 +127,30 @@ class ControlTests(unittest.TestCase):
 
     def test_team_fields_save_independently(self):
         state = self.action("update_team", team=1, score=3)
-        self.assertEqual(state["teams"][0], {"Name": "", "Score": 3, "Players": []})
+        self.assertEqual(
+            state["teams"][0],
+            {
+                "Name": "",
+                "Score": 3,
+                "Players": [],
+                "Roster": [],
+                "Bench": [],
+                "Source": MANUAL,
+                "Extra": {},
+            },
+        )
         state = self.action("update_team", team=1, name="Gryphons")
         self.assertEqual(
-            state["teams"][0], {"Name": "Gryphons", "Score": 3, "Players": []}
+            state["teams"][0],
+            {
+                "Name": "Gryphons",
+                "Score": 3,
+                "Players": [],
+                "Roster": [],
+                "Bench": [],
+                "Source": MANUAL,
+                "Extra": {},
+            },
         )
         for fields in (
             {},
@@ -234,6 +271,10 @@ class ControlTests(unittest.TestCase):
             {"action": "add_player", "team": 1, "player": "   "},
             {"action": "add_player", "team": True, "player": "Player"},
             {"action": "remove_player", "team": 1, "player": "Missing"},
+            {"action": "set_team_source", "team": 1, "source": "unknown"},
+            {"action": "set_team_source", "team": 1, "source": ["manual"]},
+            {"action": "set_team_source", "team": 1},
+            {"action": "set_team_source", "team": 3, "source": "manual"},
         ]
         for score in (-1, 1000, 1.5, "3", True, None):
             payloads.append(
@@ -249,6 +290,196 @@ class ControlTests(unittest.TestCase):
                 response = self.client.post("/api/control", json=payload)
                 self.assertEqual(response.status_code, 400)
                 self.assertEqual(self.client.get("/api/state").get_json(), before)
+
+    def test_team_sources(self):
+        state = self.client.get("/api/state").get_json()
+        self.assertEqual(
+            state["sources"],
+            [
+                {
+                    "kind": "manual",
+                    "label": "Manual",
+                    "description": "Name and roster are entered here.",
+                },
+            ],
+        )
+        self.action("update_team", team=1, name="Gryphons", score=2)
+        self.action("add_player", team=1, player="Captain")
+        before = self.client.get("/api/state").get_json()
+        self.assertEqual(
+            self.action("set_team_source", team=1, source="manual"), before
+        )
+
+    def test_sources_follow_the_loaded_game(self):
+        with patch.dict(SOURCES, {"valorant": ValorantSource}):
+            state = self.action("set_team_source", team=2, source="valorant")
+            self.assertEqual(
+                [option["kind"] for option in state["sources"]], ["manual", "valorant"]
+            )
+            state = self.action("load_game", game="Overwatch")
+        self.assertEqual([option["kind"] for option in state["sources"]], ["manual"])
+        self.assertEqual(
+            state["teams"][1],
+            {
+                "Name": "Valorant Team",
+                "Score": 0,
+                "Players": ["Agent"],
+                "Roster": [{"Name": "Agent", "Sub": False}],
+                "Bench": [],
+                "Source": MANUAL,
+                "Extra": {},
+            },
+        )
+
+    def test_failing_source_keeps_the_deck_up(self):
+        source = self.manager.match_info.sources[1] = FlakySource()
+        self.client.get("/api/state")
+        source.failure = RuntimeError("feed down")
+        with self.assertLogs(source_log, "ERROR"):
+            response = self.client.post(
+                "/api/control", json={"action": "refresh_team_source", "team": 2}
+            )
+        self.assertEqual(response.get_json(), {"error": "RuntimeError: feed down"})
+        response = self.client.get("/api/state")
+        self.assertEqual(response.status_code, 200)
+        team = response.get_json()["teams"][1]
+        self.assertEqual(
+            (team["Name"], team["Players"], team["Source"]["Error"]),
+            ("Fetched", ["Remote"], "RuntimeError: feed down"),
+        )
+        self.assertEqual(
+            self.action("update_team", team=1, name="Still works")["teams"][0]["Name"],
+            "Still works",
+        )
+
+    def test_locked_source_rejects_name_and_roster_but_keeps_score(self):
+        self.manager.match_info.sources[1] = LockedSource()
+        before = self.client.get("/api/state").get_json()
+        self.assertEqual(
+            before["teams"][1]["Source"],
+            {"Kind": "locked", "Label": "Locked", "Error": None},
+        )
+        for payload in (
+            {"action": "update_team", "team": 2, "name": "Changed"},
+            {"action": "update_team", "team": 2, "name": "Changed", "score": 1},
+        ):
+            with self.subTest(payload=payload):
+                response = self.client.post("/api/control", json=payload)
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("source", response.get_json()["error"])
+                self.assertEqual(self.client.get("/api/state").get_json(), before)
+        # Only bench players can join a sourced lineup.
+        response = self.client.post(
+            "/api/control",
+            json={"action": "add_player", "team": 2, "player": "Extra"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("bench", response.get_json()["error"])
+        self.assertEqual(self.client.get("/api/state").get_json(), before)
+        self.assertEqual(
+            self.action("update_team", team=2, score=4)["teams"][1]["Score"], 4
+        )
+        state = self.action("set_team_source", team=2, source="manual")
+        self.assertEqual(
+            state["teams"][1],
+            {
+                "Name": "Fetched",
+                "Score": 4,
+                "Players": ["Remote"],
+                "Roster": [{"Name": "Remote", "Sub": False}],
+                "Bench": [],
+                "Source": MANUAL,
+                "Extra": {"wins": 4},
+            },
+        )
+        self.action("add_player", team=2, player="Extra")
+
+    def test_move_player_reorders_the_roster(self):
+        for name in ("A", "B", "C"):
+            self.action("add_player", team=1, player=name)
+        state = self.action("move_player", team=1, player="C", **{"from": 2, "to": 0})
+        self.assertEqual(state["teams"][0]["Players"], ["C", "A", "B"])
+        for payload in (
+            {"player": "A", "from": 0, "to": 1},
+            {"player": "C", "from": 0, "to": 5},
+            {"player": "C", "from": "0", "to": 1},
+        ):
+            with self.subTest(payload=payload):
+                response = self.client.post(
+                    "/api/control",
+                    json={"action": "move_player", "team": 1, **payload},
+                )
+                self.assertEqual(response.status_code, 400)
+        players = self.client.get("/api/state").get_json()["teams"][0]["Players"]
+        self.assertEqual(players, ["C", "A", "B"])
+
+    def test_refresh_team_source_reports_why_it_cannot(self):
+        source = self.manager.match_info.sources[1] = SquadSource()
+
+        def cooling_down():
+            raise ValueError("Try again in 5 min.")
+
+        source.refresh = cooling_down
+        response = self.client.post(
+            "/api/control", json={"action": "refresh_team_source", "team": 2}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.get_json(), {"error": "Try again in 5 min."})
+        source.refresh = lambda: None
+        self.action("refresh_team_source", team=2)
+
+    def test_sourced_lineup_subs_bench_and_reorders(self):
+        self.manager.match_info.sources[1] = SquadSource()
+        team = self.client.get("/api/state").get_json()["teams"][1]
+        # Valorant fields five: the regulars first, then the first sub.
+        self.assertEqual(team["Players"], ["R1", "R2", "R3", "R4", "S1"])
+        self.assertEqual(team["Bench"], ["S2"])
+        self.assertEqual(
+            team["Roster"][4:],
+            [{"Name": "S1", "Sub": True}, {"Name": "S2", "Sub": True}],
+        )
+        team = self.action(
+            "substitute_player", team=2, index=0, player="R1", substitute="S2"
+        )["teams"][1]
+        self.assertEqual(team["Players"], ["S2", "R2", "R3", "R4", "S1"])
+        self.assertEqual(team["Bench"], ["R1"])
+        team = self.action("remove_player", team=2, player="S1")["teams"][1]
+        self.assertEqual(team["Bench"], ["R1", "S1"])
+        team = self.action("add_player", team=2, player="R1")["teams"][1]
+        team = self.action("move_player", team=2, player="R1", **{"from": 4, "to": 0})[
+            "teams"
+        ][1]
+        self.assertEqual(team["Players"], ["R1", "S2", "R2", "R3", "R4"])
+        for payload in (
+            {"index": 0, "player": "R1", "substitute": "R2"},
+            {"index": 1, "player": "R1", "substitute": "S1"},
+            {"index": "0", "player": "R1", "substitute": "S1"},
+        ):
+            with self.subTest(payload=payload):
+                response = self.client.post(
+                    "/api/control",
+                    json={"action": "substitute_player", "team": 2, **payload},
+                )
+                self.assertEqual(response.status_code, 400)
+        response = self.client.post(
+            "/api/control",
+            json={
+                "action": "substitute_player",
+                "team": 1,
+                "index": 0,
+                "player": "A",
+                "substitute": "B",
+            },
+        )
+        self.assertIn("no bench", response.get_json()["error"])
+        self.action("toggle_component", scene="pregame", component="Team Roster")
+        overlay = json.loads(self.manager.create_post_request())["scenes"]
+        roster = next(
+            item for item in overlay["pregame"] if item["name"] == "Team Roster"
+        )
+        self.assertEqual(
+            roster["data"]["teams"][1]["players"], ["R1", "S2", "R2", "R3", "R4"]
+        )
 
     def test_failed_load_retains_current_game(self):
         before = self.client.get("/api/state").get_json()

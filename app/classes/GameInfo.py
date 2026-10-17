@@ -10,6 +10,8 @@ class GameInfo:
 
         self.maps = []
         self.chars = []
+        # If a source is selected, we can cap the expected number of players
+        self.team_size = None
 
         self.load_game_info(self.name)
 
@@ -24,6 +26,7 @@ class GameInfo:
             self.enabled_components = data["enabled_components"]
             self.maps = data["maps"]
             self.chars = data["chars"]
+            self.team_size = data.get("team_size")
 
     def __str__(self):
         return json.dumps(
@@ -33,6 +36,7 @@ class GameInfo:
                 "enabled_components": self.enabled_components,
                 "maps": self.maps,
                 "chars": self.chars,
+                "team_size": self.team_size,
             },
             indent=2,
         )

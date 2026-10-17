@@ -3,9 +3,11 @@ import json
 if __package__:
     from .GameInfo import GameInfo
     from .MatchInfo import MatchInfo
+    from .TeamSource import supports
 else:
     from GameInfo import GameInfo
     from MatchInfo import MatchInfo
+    from TeamSource import supports
 
 
 class StateManager:
@@ -14,7 +16,7 @@ class StateManager:
         self.game_key = game_name
         self.current_scene = "idle"
 
-        self.match_info = MatchInfo()
+        self.match_info = MatchInfo(self.game_info.team_size)
         self.bans = {"map": [], "hero": []}
 
         self.current_idle_components = []  # (component_name, position, enabled)
@@ -24,7 +26,10 @@ class StateManager:
         self.load_components(self.game_info)
 
     def load_game(self, game_name):
-        """Reset game components and bans while retaining teams and selected scene."""
+        """Reset game components and bans while retaining teams and selected scene.
+
+        A team on a source the new game does not support switches to Manual, keeping its team.
+        """
         replacement = StateManager(game_name)
         self.game_info = replacement.game_info
         self.game_key = replacement.game_key
@@ -32,6 +37,10 @@ class StateManager:
         self.current_pregame_components = replacement.current_pregame_components
         self.current_ingame_components = replacement.current_ingame_components
         self.bans = replacement.bans
+        self.match_info.team_size = self.game_info.team_size
+        for team, source in enumerate(self.match_info.sources, start=1):
+            if not supports(source, self.game_key):
+                self.match_info.set_source(team, "manual")
 
     def update_ban(self, kind, name, *, remove=False):
         options = self.game_info.ban_options()

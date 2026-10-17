@@ -4,6 +4,8 @@ from urllib.request import Request, urlopen
 
 from flask import Blueprint, current_app, jsonify, render_template, request
 
+from app.classes.TeamSource import SOURCES, supports
+
 main = Blueprint("main", __name__, url_prefix="/api")
 control = Blueprint("control", __name__)
 GAME_DIR = Path(__file__).resolve().parent / "json"
@@ -22,6 +24,15 @@ def state_data():
         "games": available_games(),
         "scene": state.current_scene,
         "teams": [state.match_info.team_info(1), state.match_info.team_info(2)],
+        "sources": [
+            {
+                "kind": source.kind,
+                "label": source.label,
+                "description": source.description,
+            }
+            for source in SOURCES.values()
+            if supports(source, state.game_key)
+        ],
         "ban_options": state.game_info.ban_options(),
         "bans": state.bans,
         "components": {
@@ -135,11 +146,26 @@ def update_state():
                     required_text(data, "name"),
                     remove=action == "remove_ban",
                 )
-            elif action in ("update_team", "add_player", "remove_player"):
+            elif action in (
+                "update_team",
+                "add_player",
+                "remove_player",
+                "move_player",
+                "substitute_player",
+                "set_team_source",
+                "refresh_team_source",
+            ):
                 team = data.get("team")
                 if type(team) is not int or team not in (1, 2):
                     raise ValueError("Team must be 1 or 2.")
-                if action == "update_team":
+                locked = not match.editable(team)
+                if action == "set_team_source":
+                    match.set_source(team, data.get("source"))
+                elif action == "refresh_team_source":
+                    match.refresh_source(team)
+                elif action == "update_team":
+                    if locked and "name" in data:
+                        raise ValueError("This team's name comes from its source.")
                     if "name" not in data and "score" not in data:
                         raise ValueError("Provide a team name or score.")
                     name = required_text(data, "name") if "name" in data else None
@@ -157,7 +183,26 @@ def update_state():
                 else:
                     player = required_text(data, "player")
                     if action == "add_player":
-                        match.add_player(team, player)
+                        if not match.add_player(team, player):
+                            raise ValueError(f"{player} is not on this team's bench.")
+                    elif action == "substitute_player":
+                        if not locked:
+                            raise ValueError("Manual teams have no bench.")
+                        index = data.get("index")
+                        if type(index) is not int:
+                            raise ValueError("Position must be a whole number.")
+                        if not match.substitute_player(
+                            team, index, player, required_text(data, "substitute")
+                        ):
+                            raise ValueError("The lineup changed. Pick the sub again.")
+                    elif action == "move_player":
+                        start, end = data.get("from"), data.get("to")
+                        if type(start) is not int or type(end) is not int:
+                            raise ValueError("Positions must be whole numbers.")
+                        if not match.move_player(team, start, end, player):
+                            raise ValueError(
+                                "The roster changed. Drag the player again."
+                            )
                     elif not match.remove_player(team, player):
                         raise ValueError("Player is no longer on this team.")
             else:

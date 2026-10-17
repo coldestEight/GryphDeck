@@ -101,6 +101,14 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .player { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); padding: 5px 0; }
 .player-index { font-family: "Antonio", sans-serif; color: var(--light-gray); font-size: .85rem; }
 .player-name { flex: 1; overflow-wrap: anywhere; min-width: 0; font-size: .85rem; }
+.player[draggable="true"] { cursor: grab; }
+.player.dragging { opacity: .4; }
+.player.drop-before { box-shadow: inset 0 2px 0 var(--accent-gold); }
+.player.drop-after { box-shadow: inset 0 -2px 0 var(--accent-gold); }
+.drag-handle { border: 0; background: none; color: var(--light-gray); padding: 4px 2px; font-size: .9rem; line-height: 1; cursor: grab; }
+.drag-handle:hover { color: var(--accent-gold); }
+.lineup-player { flex: 1; min-width: 0; font-size: .85rem; padding: 6px 8px; }
+.bench-form select { width: 100%; font-size: .8rem; }
 .remove-player { border-radius: 6px; border: 0; background: var(--surface-inset); color: var(--light-gray); padding: 8px; font-size: .75rem; }
 .remove-player:hover { color: var(--light-gray); background: var(--accent-red); }
 .empty-roster { color: var(--light-gray); padding: 12px; border: 2px dashed var(--border); border-radius: 8px; font-size: .8rem; }
@@ -151,3 +159,13 @@ footer > span:first-child { font-family: "Antonio", sans-serif; letter-spacing: 
 .ban-form button { padding-left: 10px; padding-right: 10px; }
 .ban-feedback { margin-top: 8px; }
 .ban-feedback.error { color: color-mix(in srgb, var(--red) 45%, var(--light-gray)); }
+.source-form { display: grid; grid-template-columns: minmax(0, 1fr); margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.source-row { display: flex; gap: 8px; }
+.source-row select { flex: 1; min-width: 0; }
+.refresh-source { padding: 0 12px; font-size: 1.1rem; }
+.source-note { margin-top: 6px; }
+.team-card[data-locked="true"] .source-note { color: var(--accent-gold); }
+.team-card .source-note.error { color: var(--accent-red); }
+input:disabled { cursor: not-allowed; opacity: .6; }
+input:disabled:hover { border-color: var(--border); }
+.team-card[data-locked="true"] button:disabled { cursor: not-allowed; }
