@@ -72,3 +72,10 @@ node_modules/
 .next/
 out/
 npm-debug.log*
+
+# caches
+cache/
+
+# Team rosters, except the example
+app/teams/*.csv
+!app/teams/Example.csv

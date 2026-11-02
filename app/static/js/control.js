@@ -19,7 +19,13 @@ function render({ teams = false, game = false } = {}) {
     const select = document.querySelector("#game");
     select.replaceChildren(...state.games.map(name => new Option(name, name)));
     select.value = state.game_key;
+    const source = document.querySelector("#team-source");
+    source.replaceChildren(...state.team_sources.map(name => new Option(name, name)));
+    source.value = state.team_source.name;
   }
+  const sourceError = document.querySelector(".team-source-error");
+  sourceError.hidden = !state.team_source.error;
+  sourceError.textContent = state.team_source.error || "";
   document.querySelectorAll("[data-scene-panel]").forEach(panel => {
     const scene = panel.dataset.scenePanel;
     const components = state.components[scene];
@@ -53,10 +59,29 @@ function render({ teams = false, game = false } = {}) {
       card.querySelector('[name="name"]').value = team.Name;
       card.querySelector('[name="score"]').value = team.Score;
     }
-    card.querySelector(".player-count").textContent = `${team.Players.length} player${team.Players.length === 1 ? "" : "s"}`;
+    const manual = state.team_source.name === "Manual";
+    card.querySelector('[name="name"]').disabled = !manual;
+    card.querySelector(".player-form").hidden = !manual;
+    const sourceTeamForm = card.querySelector(".source-team-form");
+    sourceTeamForm.hidden = !state.team_source.teams.length;
+
+    const players = state.rosters[index];
+    card.querySelector(".player-count").textContent = `${team.Players.length}/${state.max_players} active, ${players.length} on roster`;
+
     const roster = card.querySelector(".players");
-    roster.replaceChildren(...team.Players.map((player, playerIndex) => {
+    roster.replaceChildren(...players.map(({ name: player }, playerIndex) => {
+      const active = team.Players.includes(player);
       const row = element("li", "player");
+      row.classList.toggle("benched", !active);
+      const toggle = element("button", "player-active", active ? "Active" : "Benched");
+      toggle.type = "button";
+      toggle.setAttribute("aria-pressed", String(active));
+      toggle.disabled = !active && team.Players.length >= state.max_players;
+      toggle.setAttribute("aria-label", `${player} is ${active ? "active" : "benched"} on team ${index + 1}`);
+      toggle.addEventListener("click", async () => {
+        await send({ action: "set_player_active", team: index + 1, player, active: !active }, `${player} ${active ? "benched" : "activated"}.`);
+        [...roster.querySelectorAll(".player-active")][playerIndex]?.focus();
+      });
       const remove = element("button", "remove-player", "Remove");
       remove.type = "button";
       remove.setAttribute("aria-label", `Remove ${player} from team ${index + 1}`);
@@ -64,10 +89,11 @@ function render({ teams = false, game = false } = {}) {
         await send({ action: "remove_player", team: index + 1, player }, "Player removed.");
         card.querySelector('[name="player"]').focus();
       });
-      row.append(element("span", "player-index", String(playerIndex + 1).padStart(2, "0")), element("span", "player-name", player), remove);
+      remove.hidden = !manual;
+      row.append(element("span", "player-index", String(playerIndex + 1).padStart(2, "0")), element("span", "player-name", player), toggle, remove);
       return row;
     }));
-    if (!team.Players.length) roster.append(element("li", "empty-roster", "No players added."));
+    if (!players.length) roster.append(element("li", "empty-roster", "No players added."));
   });
   renderBans({ game });
 }
@@ -89,11 +115,6 @@ function renderBans({ game }) {
       feedback.textContent = options.choices.length ? `Type to search the game's ${kind === "map" ? "maps" : "heroes"}.` : `No ${kind === "map" ? "maps" : "heroes"} configured for this game.`;
     }
     section.querySelector(".ban-count").textContent = `${selected.length} ${selection}${selected.length === 1 ? "" : "s"}`;
-    const suggestions = section.querySelector("datalist");
-    const available = options.choices.filter(name => !selected.includes(name));
-    if (JSON.stringify([...suggestions.options].map(option => option.value)) !== JSON.stringify(available)) {
-      suggestions.replaceChildren(...available.map(name => new Option(name, name)));
-    }
     const list = section.querySelector(".ban-list");
     list.replaceChildren(...selected.map((name, index) => {
       const row = element("li", "player");
@@ -158,7 +179,16 @@ document.querySelector("#game-form").addEventListener("submit", event => {
   send({ action: "load_game", game: document.querySelector("#game").value }, "Game loaded. Components, map picks, and hero bans reset; teams retained.", { game: true });
 });
 
+document.querySelector("#team-source").addEventListener("change", async event => {
+  const select = event.currentTarget;
+  await send({ action: "select_team_source", source: select.value }, `${select.value} team source selected. Current teams kept.`);
+  select.value = state.team_source.name;
+  select.focus();
+});
+
 document.querySelectorAll("[data-ban-kind]").forEach(section => {
+  const kind = section.dataset.banKind;
+  searchable(section.querySelector('[name="ban"]'), () => state.ban_options[kind].choices.filter(name => !state.bans[kind].includes(name)));
   section.querySelector(".ban-form").addEventListener("submit", async event => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -246,6 +276,12 @@ document.querySelectorAll(".team-card").forEach(card => {
     const form = event.currentTarget;
     if (await send({ action: "add_player", team, player: form.elements.player.value }, "Player added to roster.")) form.reset();
     form.elements.player.focus();
+  });
+  searchable(card.querySelector('.source-team-form [name="team"]'), () => state.team_source.teams);
+  card.querySelector(".source-team-form").addEventListener("submit", async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (await send({ action: "load_source_team", team, name: form.elements.team.value }, `Team ${team} loaded from source.`, { teams: true })) form.reset();
   });
 });
 

@@ -1,7 +1,9 @@
 """Integration tests: python -m unittest app.test_routes app.classes.test_classes."""
 
 import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 from urllib.error import URLError
 
@@ -26,8 +28,70 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.get_json())
         return response.get_json()
 
+    def use_team_csv(self, text):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        (Path(directory.name) / "League.csv").write_text(text, encoding="utf-8")
+        team_dir = patch(
+            "app.classes.team_sources.CsvTeamSource.TEAM_DIR", Path(directory.name)
+        )
+        team_dir.start()
+        self.addCleanup(team_dir.stop)
+
+    def test_csv_source_locks_names_and_rosters_until_manual(self):
+        self.use_team_csv("Team,Player,Tracker\nGryphons,Talon,t\nGryphons,Plume,\n")
+        state = self.action("select_team_source", source="League")
+        self.assertEqual(state["team_sources"], ["League", "Manual"])
+        self.assertEqual(state["team_source"]["teams"], ["Gryphons"])
+        state = self.action("load_source_team", team=1, name="gryphons")
+        self.assertEqual(state["teams"][0]["Name"], "Gryphons")
+        self.action("set_player_active", team=1, player="Talon", active=False)
+        loaded = self.action("update_team", team=1, score=2)
+        self.assertEqual(
+            loaded["rosters"][0][0], {"name": "Talon", "metadata": {"Tracker": "t"}}
+        )
+        for payload in (
+            {"action": "update_team", "team": 1, "name": "Renamed"},
+            {"action": "add_player", "team": 1, "player": "Extra"},
+            {"action": "remove_player", "team": 1, "player": "Plume"},
+        ):
+            with self.subTest(payload=payload):
+                response = self.client.post("/api/control", json=payload)
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("Manual", response.get_json()["error"])
+        state = self.action("select_team_source", source="Manual")
+        self.assertEqual(state["teams"], loaded["teams"])
+        self.action("update_team", team=1, name="Gryphons Academy")
+        state = self.action("add_player", team=1, player="Extra")
+        self.assertEqual(
+            state["teams"][0],
+            {"Name": "Gryphons Academy", "Score": 2, "Players": ["Plume", "Extra"]},
+        )
+
+    def test_failing_source_keeps_teams_and_reports_the_error(self):
+        self.use_team_csv("Team,Player\nGryphons,Talon\n")
+        self.action("select_team_source", source="League")
+        before = self.action("load_source_team", team=1, name="Gryphons")
+        self.manager.team_source.path.write_text("Name\nGryphons\n")
+        with self.assertLogs("app.classes.team_sources.TeamSource", "ERROR"):
+            response = self.client.post(
+                "/api/control",
+                json={"action": "load_source_team", "team": 2, "name": "Gryphons"},
+            )
+            state = self.client.get("/api/state").get_json()
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("headings", state["team_source"]["error"])
+        self.assertEqual(state["teams"], before["teams"])
+
     def test_dashboard_and_default_game(self):
-        for path in ("/", "/UI", "/static/css/control.css", "/static/js/control.js"):
+        for path in (
+            "/",
+            "/UI",
+            "/static/css/control.css",
+            "/static/css/search.css",
+            "/static/js/control.js",
+            "/static/js/search.js",
+        ):
             response = self.client.get(path)
             self.assertEqual(response.status_code, 200)
             response.close()
@@ -234,6 +298,13 @@ class ControlTests(unittest.TestCase):
             {"action": "add_player", "team": 1, "player": "   "},
             {"action": "add_player", "team": True, "player": "Player"},
             {"action": "remove_player", "team": 1, "player": "Missing"},
+            {
+                "action": "set_player_active",
+                "team": 1,
+                "player": "Missing",
+                "active": True,
+            },
+            {"action": "select_team_source", "source": "../json/Valorant"},
         ]
         for score in (-1, 1000, 1.5, "3", True, None):
             payloads.append(
